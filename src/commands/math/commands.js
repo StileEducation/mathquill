@@ -1015,15 +1015,12 @@ Environments.matrix = P(Environment, function(_, super_) {
       } else {
         return this.blocks[0];
       }
-    } else if (updown === 'down') {
-      // Otherwise, we must be about to enter the matrix.
+    } else { // updown === 'down'
       if (dir === L) {
         return this.blocks[this.blocks.length - 1];
       } else {
         return this.blocks[this.blocks.length - this.rowSize];
       }
-    } else {
-      pray("Invalid value for updown '" + updown + "'", false);
     }
   };
   // Exit the matrix at the first and last columns if updown is configured.
