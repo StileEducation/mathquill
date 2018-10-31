@@ -144,6 +144,10 @@ var Node = P(function(_) {
     return el.mqBlockNode || el.mqCmdNode;
   }
 
+  // Stile hax:
+  // For some reason Desmos deleted this? Learnosity uses it though...
+  this.byId = {};
+
   this.linkElementByBlockId = function (elm, id) {
     Node.linkElementByBlockNode(elm, TempByIdDict[id]);
   };
@@ -159,6 +163,7 @@ var Node = P(function(_) {
   _.init = function() {
     this.id = uniqueNodeId();
     TempByIdDict[id] = this;
+    Node.byId[this.id] = this;
     scheduleDictionaryCleaning(id, this);
 
     this.ends = {};
