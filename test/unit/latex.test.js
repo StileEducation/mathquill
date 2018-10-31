@@ -137,6 +137,21 @@ suite('latex', function() {
     assertParsesLatex('\\square ');
   });
 
+  test('matrices', function() {
+    assertParsesLatex('\\begin{matrix}x\\end{matrix}');
+    assertParsesLatex('\\begin{pmatrix}x\\end{pmatrix}');
+    assertParsesLatex('\\begin{Bmatrix}x\\end{Bmatrix}');
+    assertParsesLatex('\\begin{vmatrix}x&y\\\\1&2\\end{vmatrix}');
+    assertParsesLatex('\\begin{bmatrix}x&y&z&123&x^2\\\\23&s&\\sin \\theta &1&x\\\\e&h&a&1&y\\end{bmatrix}');
+
+    // Adds missing cells
+    assertParsesLatex('\\begin{Vmatrix}x&y\\\\1\\end{Vmatrix}', '\\begin{Vmatrix}x&y\\\\1&\\end{Vmatrix}');
+    assertParsesLatex('\\begin{Vmatrix}x\\\\x&y\\\\x\\end{Vmatrix}', '\\begin{Vmatrix}x&\\\\x&y\\\\x&\\end{Vmatrix}');
+
+    // align*
+    assertParsesLatex('\\begin{align*}y&=ax^2+bx+c\\\\y&=mx+c\\end{align*}');
+  });
+
   suite('public API', function() {
     var mq;
     setup(function() {
@@ -328,5 +343,19 @@ suite('latex', function() {
     testCantParse('unmatched \\left/\\right', '\\left ( 1 + 2 )', ' [ 1, 2 \\right ]');
     testCantParse('langlerfish/ranglerfish (checking for confusion with langle/rangle)',
 		    '\\left\\langlerfish 123\\right\\ranglerfish)');
+  });
+
+  suite('selectable span', function() {
+    setup(function() {
+      MQ.StaticMath($('<span>2&lt;x</span>').appendTo('#mock')[0]);
+    });
+
+    function selectableContent() {
+      return document.querySelector('#mock .mq-selectable').textContent;
+    }
+
+    test('escapes < in textContent', function () {
+      assert.equal(selectableContent(), '$2<x$');
+    });
   });
 });
