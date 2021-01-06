@@ -135,28 +135,50 @@ Node.open(function(_) {
 
     // These remaining hotkeys are only of benefit to people running screen readers.
     case 'Ctrl-Alt-Up': // speak parent block that has focus
-      if(cursor.parent.parent && cursor.parent.parent instanceof Node) aria.queue(cursor.parent.parent);
+      if (cursor.parent.parent && cursor.parent.parent instanceof Node) aria.queue(cursor.parent.parent);
       else aria.queue('nothing above');
       break;
 
     case 'Ctrl-Alt-Down': // speak current block that has focus
-      if(cursor.parent && cursor.parent instanceof Node) aria.queue(cursor.parent);
+      if (cursor.parent && cursor.parent instanceof Node) aria.queue(cursor.parent);
       else aria.queue('block is empty');
       break;
 
     case 'Ctrl-Alt-Left': // speak left-adjacent block
-      if(cursor.parent.parent.ends[L] && cursor.parent.parent.ends[L] instanceof Node) aria.queue(cursor.parent.parent.ends[L]);
-      else aria.queue('nothing to the left');
+      if (
+        cursor.parent.parent &&
+        cursor.parent.parent.ends &&
+        cursor.parent.parent.ends[L] &&
+        cursor.parent.parent.ends[L] instanceof Node
+      ) {
+        aria.queue(cursor.parent.parent.ends[L]);
+      } else {
+        aria.queue('nothing to the left');
+      }
       break;
 
     case 'Ctrl-Alt-Right': // speak right-adjacent block
-      if(cursor.parent.parent.ends[R] && cursor.parent.parent.ends[R] instanceof Node) aria.queue(cursor.parent.parent.ends[R]);
-      else aria.queue('nothing to the right');
+      if (
+        cursor.parent.parent &&
+        cursor.parent.parent.ends &&
+        cursor.parent.parent.ends[R] &&
+        cursor.parent.parent.ends[R] instanceof Node
+      ) {
+        aria.queue(cursor.parent.parent.ends[R]);
+      } else {
+        aria.queue('nothing to the right');
+      }
       break;
 
     case 'Ctrl-Alt-Shift-Down': // speak selection
-      if(cursor.selection) aria.queue(cursor.selection.join('mathspeak')+' selected');
+      if (cursor.selection) aria.queue(cursor.selection.join('mathspeak', ' ').trim() + ' selected');
       else aria.queue('nothing selected');
+      break;
+
+    case 'Ctrl-Alt-=':
+    case 'Ctrl-Alt-Shift-Right': // speak ARIA post label (evaluation or error)
+      if (ctrlr.ariaPostLabel.length) aria.queue(ctrlr.ariaPostLabel);
+      else aria.queue('no answer');
       break;
 
     default:
@@ -260,7 +282,10 @@ Controller.open(function(_) {
     if(cursorEl && cursorEl instanceof Node) {
       if(cursorEl.sides) {
         aria.queue(cursorEl.parent.chToCmd(cursorEl.sides[-dir].ch).mathspeak({createdLeftOf: cursor}));
-      } else if (!cursorEl.blocks) {
+      // generally, speak the current element if it has no blocks,
+      // but don't for text block commands as the deleteTowards method
+      // in the TextCommand class is responsible for speaking the new character under the cursor.
+      } else if (!cursorEl.blocks && cursorEl.parent.ctrlSeq !== '\\text') {
         aria.queue(cursorEl);
       }
     } else if(cursorElParent && cursorElParent instanceof Node) {
@@ -288,24 +313,30 @@ Controller.open(function(_) {
 
     if (cursor[L].siblingDeleted) cursor[L].siblingDeleted(cursor.options, R);
     if (cursor[R].siblingDeleted) cursor[R].siblingDeleted(cursor.options, L);
-    cursor.parent.bubble('reflow');
+    cursor.parent.bubble(function (node) { node.reflow(); });
 
     return this;
   };
   _.ctrlDeleteDir = function(dir) {
     prayDirection(dir);
     var cursor = this.cursor;
-    if (!cursor[L] || cursor.selection) return this.deleteDir();
+    if (!cursor[dir] || cursor.selection) return this.deleteDir(dir);
 
     this.notify('edit');
-    var fragRemoved = Fragment(cursor.parent.ends[L], cursor[L]);
+    var fragRemoved;
+    if (dir === L) {
+      fragRemoved = Fragment(cursor.parent.ends[L], cursor[L]);
+    } else {
+      fragRemoved = Fragment(cursor[R], cursor.parent.ends[R]);
+    }
     aria.queue(fragRemoved);
     fragRemoved.remove();
-    cursor.insAtDirEnd(L, cursor.parent);
+
+    cursor.insAtDirEnd(dir, cursor.parent);
 
     if (cursor[L].siblingDeleted) cursor[L].siblingDeleted(cursor.options, R);
     if (cursor[R].siblingDeleted) cursor[R].siblingDeleted(cursor.options, L);
-    cursor.parent.bubble('reflow');
+    cursor.parent.bubble(function (node) { node.reflow(); });
 
     return this;
   };
@@ -333,7 +364,7 @@ Controller.open(function(_) {
 
     cursor.clearSelection();
     cursor.select() || cursor.show();
-    if (cursor.selection) aria.clear().queue(cursor.selection.join('mathspeak') + ' selected'); // clearing first because selection fires several times, and we don't want repeated speech.
+    if (cursor.selection) aria.clear().queue(cursor.selection.join('mathspeak', ' ').trim() + ' selected'); // clearing first because selection fires several times, and we don't want repeated speech.
   };
   _.selectLeft = function() { return this.selectDir(L); };
   _.selectRight = function() { return this.selectDir(R); };

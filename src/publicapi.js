@@ -139,7 +139,7 @@ function getInterface(v) {
         .replace(/ class=(""|(?= |>))/g, '');
     };
     _.reflow = function() {
-      this.__controller.root.postOrder('reflow');
+      this.__controller.root.postOrder(function (node) { node.reflow(); });
       return this;
     };
   });
@@ -153,7 +153,11 @@ function getInterface(v) {
       this.__controller.editablesTextareaEvents();
       return this;
     };
-    _.focus = function() { this.__controller.textarea.focus(); return this; };
+    _.focus = function() {
+      this.__controller.textarea.focus();
+      this.__controller.scrollHoriz();
+      return this;
+    };
     _.blur = function() { this.__controller.textarea.blur(); return this; };
     _.write = function(latex) {
       this.__controller.writeLatex(latex);
@@ -170,11 +174,12 @@ function getInterface(v) {
           cmd = klass(cmd);
           if (cursor.selection) cmd.replaces(cursor.replaceSelection());
           cmd.createLeftOf(cursor.show());
-          this.__controller.scrollHoriz();
         }
         else /* TODO: API needs better error reporting */;
       }
       else cursor.parent.write(cursor, cmd);
+
+      ctrlr.scrollHoriz();
       if (ctrlr.blurred) cursor.hide().parent.blur();
       return this;
     };
@@ -196,10 +201,10 @@ function getInterface(v) {
     _.moveToLeftEnd = function() { return this.moveToDirEnd(L); };
     _.moveToRightEnd = function() { return this.moveToDirEnd(R); };
 
-    _.keystroke = function(keys) {
+    _.keystroke = function(keys, evt) {
       var keys = keys.replace(/^\s+|\s+$/g, '').split(/\s+/);
       for (var i = 0; i < keys.length; i += 1) {
-        this.__controller.keystroke(keys[i], { preventDefault: noop });
+        this.__controller.keystroke(keys[i], evt || { preventDefault: noop });
       }
       return this;
     };
@@ -218,15 +223,31 @@ function getInterface(v) {
     };
     _.setAriaLabel = function(ariaLabel) {
       if(ariaLabel && typeof ariaLabel === 'string' && ariaLabel!='') this.__controller.ariaLabel = ariaLabel;
-      else this.__controller.ariaLabel = 'MathQuill Input';
+      else this.__controller.ariaLabel = 'Math Input';
       return this;
     };
     _.getAriaLabel = function () {
-      return this.__controller.ariaLabel || 'MathQuill Input';
+      return this.__controller.ariaLabel || 'Math Input';
     };
-    _.setAriaPostLabel = function(ariaPostLabel) {
-      if(ariaPostLabel && typeof ariaPostLabel === 'string' && ariaPostLabel!='') this.__controller.ariaPostLabel = ariaPostLabel;
-      else this.__controller.ariaPostLabel = '';
+    _.setAriaPostLabel = function(ariaPostLabel, timeout) {
+      var controller = this.__controller;
+      if(ariaPostLabel && typeof ariaPostLabel === 'string' && ariaPostLabel!='') {
+        if (
+          ariaPostLabel !== controller.ariaPostLabel &&
+          typeof timeout === 'number'
+        ) {
+          if (this.ariaAlertTimeout) clearTimeout(this.ariaAlertTimeout);
+          this.ariaAlertTimeout = setTimeout(function() {
+            if (!!$(document.activeElement).closest($(controller.container)).length) {
+              aria.alert(this.mathspeak().trim() + ' ' + ariaPostLabel.trim());
+            }
+          }.bind(this), timeout);
+        }
+        controller.ariaPostLabel = ariaPostLabel;
+      } else {
+        if (this.ariaAlertTimeout) clearTimeout(this.ariaAlertTimeout);
+        controller.ariaPostLabel = '';
+      }
       return this;
     };
     _.getAriaPostLabel = function () {
