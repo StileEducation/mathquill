@@ -12,8 +12,6 @@ LatexCmds.otimes = P(BinaryOperator, function(_, super_) {
   };
 });
 
-LatexCmds['≠'] = LatexCmds.ne = LatexCmds.neq = bind(BinaryOperator,'\\ne ','&ne;', 'not equal');
-
 LatexCmds['∗'] = LatexCmds.ast = LatexCmds.star = LatexCmds.loast = LatexCmds.lowast =
   bind(BinaryOperator,'\\ast ','&lowast;', 'low asterisk');
 LatexCmds.therefor = LatexCmds.therefore =
@@ -288,9 +286,6 @@ LatexCmds.image = LatexCmds.imagin = LatexCmds.imaginary = LatexCmds.Imaginary =
   bind(VanillaSymbol,'\\Im ','&image;', 'imaginary');
 
 LatexCmds.part = LatexCmds.partial = bind(VanillaSymbol,'\\partial ','&part;', 'partial');
-
-LatexCmds.infty = LatexCmds.infin = LatexCmds.infinity =
-  bind(VanillaSymbol,'\\infty ','&infin;', 'infinity');
 
 LatexCmds.alef = LatexCmds.alefsym = LatexCmds.aleph = LatexCmds.alephsym =
   bind(VanillaSymbol,'\\aleph ','&alefsym;', 'alef sym');

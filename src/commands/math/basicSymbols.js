@@ -1,8 +1,160 @@
 /*********************************
  * Symbols for Basic Mathematics
  ********************************/
+var DigitGroupingChar = P(Symbol, function(_, super_) {
+  _.finalizeTree = _.siblingDeleted = _.siblingCreated = function(opts, dir) {
+    // don't try to fix digit grouping if the sibling to my right changed (dir === R or
+    // undefined) and it's now a DigitGroupingChar, it will try to fix grouping
+    if (dir !== L && this[R] instanceof DigitGroupingChar) return;
+    this.fixDigitGrouping(opts);
+  };
 
-var Digit = P(VanillaSymbol, function(_, super_) {
+  _.fixDigitGrouping = function (opts) {
+    if (!opts.enableDigitGrouping) return;
+
+    var left = this;
+    var right = this;
+
+    var spacesFound = 0;
+    var dots = [];
+
+    var SPACE = '\\ ';
+    var DOT = '.';
+
+    // traverse left as far as possible (starting at this char)
+    var node = left;
+    do {
+      if (/^[0-9]$/.test(node.ctrlSeq)) {
+        left = node
+      } else if (node.ctrlSeq === SPACE) {
+        left = node
+        spacesFound += 1;
+      } else if (node.ctrlSeq === DOT) {
+        left = node
+        dots.push(node);
+      } else {
+        break;
+      }
+    } while (node = left[L]);
+
+    // traverse right as far as possible (starting to right of this char)
+    while (node = right[R]) {
+      if (/^[0-9]$/.test(node.ctrlSeq)) {
+        right = node
+      } else if (node.ctrlSeq === SPACE) {
+        right = node
+        spacesFound += 1;
+      } else if (node.ctrlSeq === DOT) {
+        right = node
+        dots.push(node);
+      } else {
+        break;
+      }
+    }
+
+    // trim the leading spaces
+    while (right !== left && left.ctrlSeq === SPACE) {
+      left = left[R];
+      spacesFound -= 1;
+    }
+
+    // trim the trailing spaces
+    while (right !== left && right.ctrlSeq === SPACE) {
+      right = right[L];
+      spacesFound -= 1;
+    }
+
+    // happens when you only have a space
+    if (left === right && left.ctrlSeq === SPACE) return;
+
+    var disableFormatting = spacesFound > 0 || dots.length > 1;
+    if (disableFormatting) {
+      this.removeGroupingBetween(left, right);
+    } else if (dots[0]) {
+      if (dots[0] !== left) {
+        this.addGroupingBetween(dots[0][L], left);
+      }
+      if (dots[0] !== right) {
+        // we do not show grouping to the right of a decimal place #yet
+        this.removeGroupingBetween(dots[0][R], right);
+      }
+    } else {
+      this.addGroupingBetween(right, left);
+    }
+  };
+
+  _.removeGroupingBetween = function (left, right) {
+    var node = left;
+    do {
+      node.setGroupingClass(undefined);
+      if (node === right) break;
+    } while (node = node[R]);
+  };
+
+  _.addGroupingBetween = function (start, end) {
+    var node = start;
+    var count = 0;
+
+    var totalDigits = 0;
+    var node = start;
+    while (node) {
+      totalDigits += 1;
+
+      if (node === end) break;
+      node = node[L];
+    }
+
+    var numDigitsInFirstGroup = totalDigits % 3;
+    if (numDigitsInFirstGroup === 0) numDigitsInFirstGroup = 3;
+
+    var node = start;
+    while (node) {
+      count += 1;
+
+      var cls = undefined;
+
+      // only do grouping if we have at least 4 numbers
+      if (totalDigits >= 4) {
+        if (count === totalDigits) {
+          cls = 'mq-group-leading-' + numDigitsInFirstGroup;
+        } else if (count % 3 === 0) {
+          if (count !== totalDigits) {
+            cls = 'mq-group-start'
+          }
+        }
+
+        if (!cls) {
+          cls = 'mq-group-other'
+        }
+      }
+
+      node.setGroupingClass(cls);
+
+      if (node === end) break;
+      node = node[L];
+    }
+  };
+
+  _.setGroupingClass = function (cls) {
+    // nothing changed (either class is the same or it's still undefined)
+    if (this._groupingClass === cls) return;
+
+    // remove existing class
+    if (this._groupingClass) this.jQ.removeClass(this._groupingClass);
+
+    // add new class
+    if (cls) this.jQ.addClass(cls);
+
+    // cache the groupingClass
+    this._groupingClass = cls;
+  }
+});
+
+var Digit = P(DigitGroupingChar, function(_, super_) {
+  _.init = function(ch, html, mathspeak) {
+    super_.init.call(this, ch, '<span class="mq-digit">'+(html || ch)+'</span>', undefined, mathspeak);
+  };
+
   _.createLeftOf = function(cursor) {
     if (cursor.options.autoSubscriptNumerals
         && cursor.parent !== cursor.parent.parent.sub
@@ -56,6 +208,19 @@ var Variable = P(Symbol, function(_, super_) {
     }
     return text;
   };
+  _.mathspeak = function() {
+    var text = this.ctrlSeq;
+    if (this.isPartOfOperator || text.length !== 1) {
+      return super_.mathspeak.call(this);
+    } else {
+      // Apple voices in VoiceOver (such as Alex, Bruce, and Victoria) do
+      // some strange pronunciation given certain expressions,
+      // e.g. "y-2" is spoken as "ee minus 2" (as if the y is short).
+      // Not an ideal solution, but surrounding non-numeric text blocks with quotation marks works.
+      // This bug has been acknowledged by Apple.
+      return '"' + text + '"';
+    }
+  };
 });
 
 Options.p.autoCommands = { _maxLength: 0 };
@@ -79,10 +244,29 @@ optionProcessors.autoCommands = function(cmds) {
   return dict;
 };
 
+Options.p.autoParenthesizedFunctions = {_maxLength: 0};
+optionProcessors.autoParenthesizedFunctions = function (cmds) {
+  if (!/^[a-z]+(?: [a-z]+)*$/i.test(cmds)) {
+    throw '"'+cmds+'" not a space-delimited list of only letters';
+  }
+  var list = cmds.split(' '), dict = {}, maxLength = 0;
+  for (var i = 0; i < list.length; i += 1) {
+    var cmd = list[i];
+    if (cmd.length < 2) {
+      throw 'autocommand "'+cmd+'" not minimum length of 2';
+    }
+    dict[cmd] = 1;
+    maxLength = max(maxLength, cmd.length);
+  }
+  dict._maxLength = maxLength;
+  return dict;
+}
+
 var Letter = P(Variable, function(_, super_) {
+
   _.init = function(ch) { return super_.init.call(this, this.letter = ch); };
-  _.createLeftOf = function(cursor) {
-    super_.createLeftOf.apply(this, arguments);
+  _.checkAutoCmds = function (cursor) {
+    //handle autoCommands
     var autoCmds = cursor.options.autoCommands, maxLength = autoCmds._maxLength;
     if (maxLength > 0) {
       // want longest possible autocommand, so join together longest
@@ -103,6 +287,43 @@ var Letter = P(Variable, function(_, super_) {
         str = str.slice(1);
       }
     }
+  }
+
+  _.autoParenthesize = function (cursor) {
+    //exit early if already parenthesized
+    var right = cursor.parent.ends[R]
+    if (right && right instanceof Bracket && right.ctrlSeq === '\\left(') {
+      return
+    }
+
+    //exit early if in simple subscript
+    if (this.isParentSimpleSubscript()) {
+      return;
+    }
+
+    //handle autoParenthesized functions
+    var str = '', l = this, i = 0;
+
+    var autoParenthesizedFunctions = cursor.options.autoParenthesizedFunctions, maxLength = autoParenthesizedFunctions._maxLength;
+    var autoOperatorNames = cursor.options.autoOperatorNames
+    while (l instanceof Letter && i < maxLength) {
+      str = l.letter + str, l = l[L], i += 1;
+    }
+    // check for an autoParenthesized functions, going thru substrings longest to shortest
+    // only allow autoParenthesized functions that are also autoOperatorNames
+    while (str.length) {
+      if (autoParenthesizedFunctions.hasOwnProperty(str) && autoOperatorNames.hasOwnProperty(str)) {
+        return cursor.parent.write(cursor, '(');
+      }
+      str = str.slice(1);
+    }
+  }
+
+  _.createLeftOf = function(cursor) {
+    super_.createLeftOf.apply(this, arguments);
+
+    this.checkAutoCmds(cursor);
+    this.autoParenthesize(cursor);
   };
   _.italicize = function(bool) {
     this.isItalic = bool;
@@ -119,6 +340,12 @@ var Letter = P(Variable, function(_, super_) {
   _.autoUnItalicize = function(opts) {
     var autoOps = opts.autoOperatorNames;
     if (autoOps._maxLength === 0) return;
+
+    //exit early if in simple subscript
+    if (this.isParentSimpleSubscript()) {
+      return;
+    }
+
     // want longest possible operator names, so join together entire contiguous
     // sequence of letters
     var str = this.letter;
@@ -171,8 +398,19 @@ var Letter = P(Variable, function(_, super_) {
     }
   };
   function shouldOmitPadding(node) {
-    // omit padding if no node, or if node already has padding (to avoid double-padding)
-    return !node || (node instanceof BinaryOperator) || (node instanceof SummationNotation);
+    // omit padding if no node
+    if (!node) return true;
+
+    // do not add padding between letter and '.'
+    if (node.ctrlSeq === '.') return true;
+
+    // do not add padding between letter and binary operator. The
+    // binary operator already has padding
+    if (node instanceof BinaryOperator) return true;
+
+    if (node instanceof SummationNotation) return true;
+
+    return false;
   }
 });
 var BuiltInOpNames = {}; // the set of operator names like \sin, \cos, etc that
@@ -301,7 +539,17 @@ LatexCmds.f = P(Letter, function(_, super_) {
 });
 
 // VanillaSymbol's
-LatexCmds[' '] = LatexCmds.space = bind(VanillaSymbol, '\\ ', '&nbsp;', 'space');
+LatexCmds[' '] = LatexCmds.space = P(DigitGroupingChar, function(_, super_) {
+  _.init = function () {
+    super_.init.call(this, '\\ ', '<span>&nbsp;</span>', ' ');
+  };
+});
+
+LatexCmds['.'] = P(DigitGroupingChar, function(_, super_) {
+  _.init = function () {
+    super_.init.call(this, '.', '<span class="mq-digit">.</span>', '.');
+  };
+});
 
 LatexCmds["'"] = LatexCmds.prime = bind(VanillaSymbol, "'", '&prime;', 'prime');
 LatexCmds['″'] = LatexCmds.dprime = bind(VanillaSymbol, '″', '&Prime;', 'double prime');
@@ -310,6 +558,9 @@ LatexCmds.backslash = bind(VanillaSymbol,'\\backslash ','\\', 'backslash');
 if (!CharCmds['\\']) CharCmds['\\'] = LatexCmds.backslash;
 
 LatexCmds.$ = bind(VanillaSymbol, '\\$', '$', 'dollar');
+
+LatexCmds.square = bind(VanillaSymbol, '\\square ', '\u25A1', 'square');
+LatexCmds.mid = bind(VanillaSymbol, '\\mid ', '\u2223', 'mid');
 
 // does not use Symbola font
 var NonSymbolaSymbol = P(Symbol, function(_, super_) {
@@ -320,7 +571,26 @@ var NonSymbolaSymbol = P(Symbol, function(_, super_) {
 
 LatexCmds['@'] = NonSymbolaSymbol;
 LatexCmds['&'] = bind(NonSymbolaSymbol, '\\&', '&amp;', 'and');
-LatexCmds['%'] = bind(NonSymbolaSymbol, '\\%', '%', 'percent');
+LatexCmds['%'] = P(NonSymbolaSymbol, function(_, super_) {
+  _.init = function () {
+    super_.init.call(this, '\\%', '%', 'percent');
+  };
+  _.parser = function () {
+    var optWhitespace = Parser.optWhitespace;
+    var string = Parser.string;
+
+    // Parse `\%\operatorname{of}` as special `percentof` node so that
+    // it will be serialized properly and deleted as a unit.
+    return optWhitespace
+      .then(
+        string('\\operatorname{of}')
+        .map(function () {
+          return LatexCmds.percentof();
+        })
+      ).or(super_.parser.call(this))
+    ;
+  }
+});
 
 LatexCmds['∥'] = LatexCmds.parallel =
   bind(VanillaSymbol, '\\parallel ', '&#x2225;', 'parallel');
@@ -445,7 +715,7 @@ var LatexFragment = P(MathCommand, function(_) {
     block.finalizeInsert(cursor.options, cursor);
     if (block.ends[R][R].siblingCreated) block.ends[R][R].siblingCreated(cursor.options, L);
     if (block.ends[L][L].siblingCreated) block.ends[L][L].siblingCreated(cursor.options, R);
-    cursor.parent.bubble('reflow');
+    cursor.parent.bubble(function (node) { node.reflow(); });
   };
   _.mathspeak = function() { return latexMathParser.parse(this.latex).mathspeak(); };
   _.parser = function() {
@@ -478,12 +748,44 @@ var LatexFragment = P(MathCommand, function(_) {
 // [2]: http://en.wikipedia.org/wiki/Number_Forms
 // [3]: http://en.wikipedia.org/wiki/ISO/IEC_8859-1
 // [4]: http://en.wikipedia.org/wiki/Windows-1252
+LatexCmds['⁰'] = bind(LatexFragment, '^0');
 LatexCmds['¹'] = bind(LatexFragment, '^1');
 LatexCmds['²'] = bind(LatexFragment, '^2');
 LatexCmds['³'] = bind(LatexFragment, '^3');
+LatexCmds['⁴'] = bind(LatexFragment, '^4');
+LatexCmds['⁵'] = bind(LatexFragment, '^5');
+LatexCmds['⁶'] = bind(LatexFragment, '^6');
+LatexCmds['⁷'] = bind(LatexFragment, '^7');
+LatexCmds['⁸'] = bind(LatexFragment, '^8');
+LatexCmds['⁹'] = bind(LatexFragment, '^9');
+
 LatexCmds['¼'] = bind(LatexFragment, '\\frac14');
 LatexCmds['½'] = bind(LatexFragment, '\\frac12');
 LatexCmds['¾'] = bind(LatexFragment, '\\frac34');
+
+// this is a hack to make pasting the √ symbol
+// actually insert a sqrt command. This isn't ideal,
+// but it's way better than what we have now. I think
+// before we invest any more time into this single character
+// we should consider how to make the pipe (|) automatically
+// insert absolute value. We also will want the percent (%)
+// to expand to '% of'. I've always just thought mathquill's
+// ability to handle pasted latex magical until I started actually
+// testing it. It's a lot more buggy that I previously thought.
+//
+// KNOWN ISSUES:
+// 1) pasting √ does not put focus in side the sqrt symbol
+// 2) pasting √2 puts the 2 outside of the sqrt symbol.
+//
+// The first issue seems like we could invest more time into this to
+// fix it, but doesn't feel worth special casing. I think we'd want
+// to address it by addressing ALL pasting issues.
+//
+// The second issue seems like it might go away too if you fix paste to
+// act more like simply typing the characters out. I'd be scared to try
+// to make that change because I'm fairly confident I'd break something
+// around handling valid latex as latex rather than treating it as keystrokes.
+LatexCmds['√'] = bind(LatexFragment, '\\sqrt{}');
 
 var PlusMinus = P(BinaryOperator, function(_) {
   _.init = VanillaSymbol.prototype.init;
@@ -491,10 +793,10 @@ var PlusMinus = P(BinaryOperator, function(_) {
   _.contactWeld = _.siblingCreated = _.siblingDeleted = function(opts, dir) {
     function determineOpClassType(node) {
       if (node[L]) {
-        // If the left sibling is a binary operator or a separator (comma, semicolon, colon)
+        // If the left sibling is a binary operator or a separator (comma, semicolon, colon, space)
         // or an open bracket (open parenthesis, open square bracket)
         // consider the operator to be unary
-        if (node[L] instanceof BinaryOperator || /^[,;:\(\[]$/.test(node[L].ctrlSeq)) {
+        if (node[L] instanceof BinaryOperator || /^(\\ )|[,;:\(\[]$/.test(node[L].ctrlSeq)) {
           return '';
         }
       } else if (node.parent && node.parent.parent && node.parent.parent.isStyleBlock()) {
@@ -516,8 +818,8 @@ var PlusMinus = P(BinaryOperator, function(_) {
 });
 
 LatexCmds['+'] = bind(PlusMinus, '+', '+', 'plus');
-//yes, these are different dashes, I think one is an en dash and the other is a hyphen
-LatexCmds['–'] = LatexCmds['-'] = bind(PlusMinus, '-', '&minus;', 'minus');
+//yes, these are different dashes, en-dash, em-dash, unicode minus, actual dash
+LatexCmds['−'] = LatexCmds['—'] = LatexCmds['–'] = LatexCmds['-'] = bind(PlusMinus, '-', '&minus;', 'minus');
 LatexCmds['±'] = LatexCmds.pm = LatexCmds.plusmn = LatexCmds.plusminus =
   bind(PlusMinus,'\\pm ','&plusmn;', 'plus-or-minus');
 LatexCmds.mp = LatexCmds.mnplus = LatexCmds.minusplus =
@@ -532,7 +834,7 @@ var Inequality = P(BinaryOperator, function(_, super_) {
     this.strict = strict;
     var strictness = (strict ? 'Strict' : '');
     super_.init.call(this, data['ctrlSeq'+strictness], data['html'+strictness],
-                     data['text'+strictness]);
+                     data['text'+strictness], data['mathspeak'+strictness]);
   };
   _.swap = function(strict) {
     this.strict = strict;
@@ -540,26 +842,30 @@ var Inequality = P(BinaryOperator, function(_, super_) {
     this.ctrlSeq = this.data['ctrlSeq'+strictness];
     this.jQ.html(this.data['html'+strictness]);
     this.textTemplate = [ this.data['text'+strictness] ];
+    this.mathspeakName = this.data['mathspeak'+strictness];
   };
   _.deleteTowards = function(dir, cursor) {
     if (dir === L && !this.strict) {
       this.swap(true);
-      this.bubble('reflow');
+      this.bubble(function (node) { node.reflow(); });
       return;
     }
     super_.deleteTowards.apply(this, arguments);
   };
 });
 
-var less = { ctrlSeq: '\\le ', html: '&le;', text: '≤',
-             ctrlSeqStrict: '<', htmlStrict: '&lt;', textStrict: '<' };
-var greater = { ctrlSeq: '\\ge ', html: '&ge;', text: '≥',
-                ctrlSeqStrict: '>', htmlStrict: '&gt;', textStrict: '>' };
+var less = { ctrlSeq: '\\le ', html: '&le;', text: '≤', mathspeak: 'less than or equal to',
+             ctrlSeqStrict: '<', htmlStrict: '&lt;', textStrict: '<', mathspeakStrict: 'less than'};
+var greater = { ctrlSeq: '\\ge ', html: '&ge;', text: '≥', mathspeak: 'greater than or equal to',
+                ctrlSeqStrict: '>', htmlStrict: '&gt;', textStrict: '>', mathspeakStrict: 'greater than'};
 
 LatexCmds['<'] = LatexCmds.lt = bind(Inequality, less, true);
 LatexCmds['>'] = LatexCmds.gt = bind(Inequality, greater, true);
 LatexCmds['≤'] = LatexCmds.le = LatexCmds.leq = bind(Inequality, less, false);
 LatexCmds['≥'] = LatexCmds.ge = LatexCmds.geq = bind(Inequality, greater, false);
+LatexCmds.infty = LatexCmds.infin = LatexCmds.infinity =
+  bind(VanillaSymbol,'\\infty ','&infin;', 'infinity');
+LatexCmds['≠'] = LatexCmds.ne = LatexCmds.neq = bind(BinaryOperator,'\\ne ','&ne;', 'not equal');
 
 var Equality = P(BinaryOperator, function(_, super_) {
   _.init = function() {
@@ -568,7 +874,7 @@ var Equality = P(BinaryOperator, function(_, super_) {
   _.createLeftOf = function(cursor) {
     if (cursor[L] instanceof Inequality && cursor[L].strict) {
       cursor[L].swap(false);
-      cursor[L].bubble('reflow');
+      cursor[L].bubble(function (node) { node.reflow(); });
       return;
     }
     super_.createLeftOf.apply(this, arguments);
@@ -581,4 +887,40 @@ LatexCmds['×'] = LatexCmds.times = bind(BinaryOperator, '\\times ', '&times;', 
 LatexCmds['÷'] = LatexCmds.div = LatexCmds.divide = LatexCmds.divides =
   bind(BinaryOperator,'\\div ','&divide;', '[/]', 'over');
 
-CharCmds['~'] = LatexCmds.sim = bind(BinaryOperator, '\\sim ', '~', '~', 'tilde');
+
+var Sim = P(BinaryOperator, function(_, super_) {
+  _.init = function() {
+    super_.init.call(this, '\\sim ', '~', '~', 'tilde');
+  };
+  _.createLeftOf = function(cursor) {
+    if (cursor[L] instanceof Sim) {
+      var l = cursor[L];
+      cursor[L] = l[L];
+      l.remove();
+      Approx().createLeftOf(cursor);
+      cursor[L].bubble(function (node) { node.reflow(); });
+      return;
+    }
+    super_.createLeftOf.apply(this, arguments);
+  };
+});
+
+var Approx = P(BinaryOperator, function(_, super_) {
+  _.init = function() {
+    super_.init.call(this, '\\approx ', '&approx;', '≈', 'approximately equal');
+  };
+  _.deleteTowards = function(dir, cursor) {
+    if (dir === L) {
+      var l = cursor[L];
+      Fragment(l, this).remove();
+      cursor[L] = l[L];
+      Sim().createLeftOf(cursor);
+      cursor[L].bubble(function (node) { node.reflow(); });
+      return;
+    }
+    super_.deleteTowards.apply(this, arguments);
+  };
+});
+
+CharCmds['~'] = LatexCmds.sim = Sim;
+LatexCmds['≈'] = LatexCmds.approx = Approx;
