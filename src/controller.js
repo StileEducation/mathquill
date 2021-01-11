@@ -15,12 +15,12 @@ var Controller = P(function(_) {
     this.container = container;
     this.options = options;
 
-    this.ariaLabel = 'Math Input';
+    this.ariaLabel = 'MathQuill Input';
     this.ariaPostLabel = '';
 
     root.controller = this;
 
-    this.cursor = root.cursor = Cursor(root, options, this);
+    this.cursor = root.cursor = Cursor(root, options);
     // TODO: stop depending on root.cursor, and rm it
   };
 

@@ -127,27 +127,6 @@ function cleanDictionary () {
   TempByIdDict = {};
 }
 
-function eachNode (ends, yield_) {
-  var el = ends[L];
-  if (!el) return;
-
-  for (; el !== ends[R][R]; el = el[R]) {
-    var result = yield_(el);
-    if (result === false) break;
-  }
-}
-
-function foldNodes (ends, fold, yield_) {
-  var el = ends[L];
-  if (!el) return fold;
-
-  for (; el !== ends[R][R]; el = el[R]) {
-    fold = yield_(fold, el);
-  }
-
-  return fold;
-}
-
 /**
  * MathQuill virtual-DOM tree-node abstract base class
  */
@@ -237,40 +216,28 @@ var Node = P(function(_) {
     return Selection(leftEnd, rightEnd);
   };
 
-  _.bubble = function (yield_) {
+  _.bubble = iterator(function(yield_) {
     for (var ancestor = this; ancestor; ancestor = ancestor.parent) {
       var result = yield_(ancestor);
       if (result === false) break;
     }
 
     return this;
-  };
+  });
 
-  _.postOrder = function(yield_) {
+  _.postOrder = iterator(function(yield_) {
     (function recurse(descendant) {
       descendant.eachChild(recurse);
       yield_(descendant);
     })(this);
 
     return this;
-  };
+  });
 
   _.isEmpty = function() {
     return this.ends[L] === 0 && this.ends[R] === 0;
   };
-
-  _.isEmptyParens = function () {
-    if (!this.isEmpty()) return false;
-    if (!this.parent) return false;
-    return this.parent.ctrlSeq === '\\left(';
-  }
-
-  _.isEmptySquareBrackets = function () {
-    if (!this.isEmpty()) return false;
-    if (!this.parent) return false;
-    return this.parent.ctrlSeq === '\\left[';
-  }
-
+  
   _.isStyleBlock = function() {
     return false;
   };
@@ -279,13 +246,14 @@ var Node = P(function(_) {
     return Fragment(this.ends[L], this.ends[R]);
   };
 
-  _.eachChild = function(yield_) {
-    eachNode(this.ends, yield_);
+  _.eachChild = function() {
+    var children = this.children();
+    children.each.apply(children, arguments);
     return this;
   };
 
-  _.foldChildren = function (fold, yield_) {
-    return foldNodes(this.ends, fold, yield_);
+  _.foldChildren = function(fold, fn) {
+    return this.children().fold(fold, fn);
   };
 
   _.withDirAdopt = function(dir, parent, withDir, oppDir) {
@@ -307,32 +275,6 @@ var Node = P(function(_) {
     this.jQ.remove();
     return this.disown();
   };
-
-  _.isParentSimpleSubscript = function () {
-    if (!this.parent) return false;
-    if (!(this.parent.parent instanceof SupSub)) return false;
-
-    // Mathquill is gross. There are many different paths that
-    // create subscripts and sometimes we don't even construct
-    // true instances of `LatexCmds._`. Another problem is that
-    // the relationship between the sub and the SupSub isn't
-    // completely setup during a paste at the time we check
-    // this. I wanted to use: `this.parent.parent.sub !== this.parent`
-    // but that check doesn't always work. This seems to be the only
-    // check that always works. I'd rather live with this than try
-    // to change the init order of things.
-    if (!this.parent.jQ.hasClass('mq-sub')) return false;
-
-    return true;
-  };
-
-  // Overridden by child classes
-  _.finalizeTree = function () { };
-  _.contactWeld = function () { };
-  _.blur = function () { };
-  _.intentionalBlur = function () { };
-  _.reflow = function () { };
-  _.registerInnerField = function () { };
 });
 
 function prayWellFormed(parent, leftward, rightward) {
@@ -479,13 +421,25 @@ var Fragment = P(function(_) {
     return this.disown();
   };
 
-  _.each = function (yield_) {
-    eachNode(this.ends, yield_);
-    return this;
-  };
+  _.each = iterator(function(yield_) {
+    var self = this;
+    var el = self.ends[L];
+    if (!el) return self;
 
-  _.fold = function (fold, yield_) {
-    return foldNodes(this.ends, fold, yield_);
+    for (; el !== self.ends[R][R]; el = el[R]) {
+      var result = yield_(el);
+      if (result === false) break;
+    }
+
+    return self;
+  });
+
+  _.fold = function(fold, fn) {
+    this.each(function(el) {
+      fold = fn.call(this, fold, el);
+    });
+
+    return fold;
   };
 });
 

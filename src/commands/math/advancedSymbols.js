@@ -12,6 +12,8 @@ LatexCmds.otimes = P(BinaryOperator, function(_, super_) {
   };
 });
 
+LatexCmds['≠'] = LatexCmds.ne = LatexCmds.neq = bind(BinaryOperator,'\\ne ','&ne;', 'not equal');
+
 LatexCmds['∗'] = LatexCmds.ast = LatexCmds.star = LatexCmds.loast = LatexCmds.lowast =
   bind(BinaryOperator,'\\ast ','&lowast;', 'low asterisk');
 LatexCmds.therefor = LatexCmds.therefore =
@@ -67,26 +69,8 @@ LatexCmds.nsupersete = LatexCmds.nsuperseteq =
 LatexCmds.notsupersete = LatexCmds.notsuperseteq =
   bind(BinaryOperator,'\\not\\supseteq ','&#8841;', 'not superset or equal to');
 
-//the canonical sets of numbers
-LatexCmds.mathbb = P(MathCommand, function(_) {
-  _.createLeftOf = noop;
-  _.numBlocks = function() { return 1; };
-  _.parser = function() {
-    var string = Parser.string;
-    var regex = Parser.regex;
-    var optWhitespace = Parser.optWhitespace;
-    return optWhitespace.then(string('{'))
-          .then(optWhitespace)
-          .then(regex(/^[NPZQRCH]/))
-          .skip(optWhitespace)
-          .skip(string('}'))
-          .map(function(c) {
-              // instantiate the class for the matching char
-              return LatexCmds[c]();
-    });
-  };
-});
 
+//the canonical sets of numbers
 LatexCmds.N = LatexCmds.naturals = LatexCmds.Naturals =
   bind(VanillaSymbol,'\\mathbb{N}','&#8469;', 'naturals');
 
@@ -304,6 +288,9 @@ LatexCmds.image = LatexCmds.imagin = LatexCmds.imaginary = LatexCmds.Imaginary =
   bind(VanillaSymbol,'\\Im ','&image;', 'imaginary');
 
 LatexCmds.part = LatexCmds.partial = bind(VanillaSymbol,'\\partial ','&part;', 'partial');
+
+LatexCmds.infty = LatexCmds.infin = LatexCmds.infinity =
+  bind(VanillaSymbol,'\\infty ','&infin;', 'infinity');
 
 LatexCmds.alef = LatexCmds.alefsym = LatexCmds.aleph = LatexCmds.alephsym =
   bind(VanillaSymbol,'\\aleph ','&alefsym;', 'alef sym');
