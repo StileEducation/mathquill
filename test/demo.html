@@ -2,7 +2,6 @@
 <html>
 <head>
 
-<meta charset="UTF-8">
 <meta name="viewport" content="width=624">
 
 <title>MathQuill Demo</title>
@@ -93,7 +92,6 @@ $(function() {
   $(latexMath.el()).bind('keydown keypress', function() {
     setTimeout(function() {
       var latex = latexMath.latex();
-
       latexSource.val(latex);
 //      location.hash = '#'+latex; //extremely performance-crippling in Chrome for some reason
       htmlSource.text(printTree(latexMath.html()));

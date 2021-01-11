@@ -12,19 +12,19 @@ var MathElement = P(Node, function(_, super_) {
       // SupSub::contactWeld, and is deliberately only passed in by writeLatex,
       // see ea7307eb4fac77c149a11ffdf9a831df85247693
     var self = this;
-    self.postOrder(function (node) { node.finalizeTree(options) });
-    self.postOrder(function (node) { node.contactWeld(cursor) });
+    self.postOrder('finalizeTree', options);
+    self.postOrder('contactWeld', cursor);
 
     // note: this order is important.
     // empty elements need the empty box provided by blur to
     // be present in order for their dimensions to be measured
     // correctly by 'reflow' handlers.
-    self.postOrder(function (node) { node.blur(); });
+    self.postOrder('blur');
 
-    self.postOrder(function (node) { node.reflow(); });
+    self.postOrder('reflow');
     if (self[R].siblingCreated) self[R].siblingCreated(options, L);
     if (self[L].siblingCreated) self[L].siblingCreated(options, R);
-    self.bubble(function (node) { node.reflow(); });
+    self.bubble('reflow');
   };
 });
 
@@ -241,19 +241,17 @@ var MathCommand = P(MathElement, function(_, super_) {
 
     pray('no unmatched angle brackets', tokens.join('') === this.htmlTemplate);
 
-    // add cmdId and aria-hidden (for screen reader users) to all top-level tags
-    // Note: with the RegExp search/replace approach, it's possible that an element which is both a command and block may contain redundant aria-hidden attributes.
-    // In practice this doesn't appear to cause problems for screen readers.
+    // add cmdId to all top-level tags
     for (var i = 0, token = tokens[0]; token; i += 1, token = tokens[i]) {
       // top-level self-closing tags
       if (token.slice(-2) === '/>') {
-        tokens[i] = token.slice(0,-2) + cmdId + ' aria-hidden="true"/>';
+        tokens[i] = token.slice(0,-2) + cmdId + '/>';
       }
       // top-level open tags
       else if (token.charAt(0) === '<') {
         pray('not an unmatched top-level close tag', token.charAt(1) !== '/');
 
-        tokens[i] = token.slice(0,-1) + cmdId + ' aria-hidden="true">';
+        tokens[i] = token.slice(0,-1) + cmdId + '>';
 
         // skip matching top-level close tag and all tag pairs in between
         var nesting = 1;
@@ -272,7 +270,7 @@ var MathCommand = P(MathElement, function(_, super_) {
       }
     }
     return tokens.join('').replace(/>&(\d+)/g, function($0, $1) {
-      return ' mathquill-block-id=' + blocks[$1].id + ' aria-hidden="true">' + blocks[$1].join('html');
+      return ' mathquill-block-id=' + blocks[$1].id + '>' + blocks[$1].join('html');
     });
   };
 
@@ -291,7 +289,7 @@ var MathCommand = P(MathElement, function(_, super_) {
       if (text && cmd.textTemplate[i] === '('
           && child_text[0] === '(' && child_text.slice(-1) === ')')
         return text + child_text.slice(1, -1) + cmd.textTemplate[i];
-      return text + child_text + (cmd.textTemplate[i] || '');
+      return text + child.text() + (cmd.textTemplate[i] || '');
     });
   };
   _.mathspeakTemplate = [];
@@ -309,7 +307,7 @@ var MathCommand = P(MathElement, function(_, super_) {
  */
 var Symbol = P(MathCommand, function(_, super_) {
   _.init = function(ctrlSeq, html, text, mathspeak) {
-    if (!text && !!ctrlSeq) text = ctrlSeq.replace(/^\\/, '');
+    if (!text) text = ctrlSeq && ctrlSeq.length > 1 ? ctrlSeq.slice(1) : ctrlSeq;
 
     this.mathspeakName = mathspeak || text;
     super_.init.call(this, ctrlSeq, html, [ text ]);
@@ -383,7 +381,7 @@ var MathBlock = P(MathElement, function(_, super_) {
     var autoOps = {};
     if (this.controller) autoOps = this.controller.options.autoOperatorNames;
     return this.foldChildren([], function(speechArray, cmd) {
-      if (cmd.isPartOfOperator) {
+      if (cmd.isItalic === false ) { // auto operator name
         tempOp += cmd.mathspeak();
       }
       else {
@@ -396,19 +394,23 @@ var MathBlock = P(MathElement, function(_, super_) {
           tempOp = '';
         }
         var mathspeakText = cmd.mathspeak();
-        var cmdText = cmd.ctrlSeq;
-        if (isNaN(cmdText)) {
-          mathspeakText  = ' ' + mathspeakText;
-          if (cmdText !== '.') {
+        // Apple voices in VoiceOver (such as Alex, Bruce, and Victoria) do
+        // some strange pronunciation given certain expressions,
+        // e.g. "y-2" is spoken as "ee minus 2" (as if the y is short).
+        // Not an ideal solution, but surrounding non-numeric text blocks with quotation marks works.
+        // This bug has been acknowledged by Apple.
+        if (/^[A-Za-z]*$/.test(cmd.text())) {
+          mathspeakText = '"' + mathspeakText + '"';
+        } else if (isNaN(cmd.text())) {
+          mathspeakText  =' ' + mathspeakText;
+          if(cmd.text() !== '.') {
             mathspeakText += ' ';
           }
         }
-        speechArray.push(mathspeakText);
+        speechArray.push(mathspeakText.replace(/ +(?= )/g,''));
       }
       return speechArray;
-    })
-    .join('')
-    .replace(/ +(?= )/g,'');
+    }).join('');
   };
   _.ariaLabel = 'block';
 
@@ -465,8 +467,6 @@ var MathBlock = P(MathElement, function(_, super_) {
       return LatexCmds['÷'](ch);
     else if (options && options.typingAsteriskWritesTimesSymbol && ch === '*')
       return LatexCmds['×'](ch);
-    else if (options && options.typingPercentWritesPercentOf && ch === '%')
-      return LatexCmds.percentof(ch);
     else if (cons = CharCmds[ch] || LatexCmds[ch])
       return cons(ch);
     else
@@ -492,14 +492,9 @@ var MathBlock = P(MathElement, function(_, super_) {
   };
   _.blur = function() {
     this.jQ.removeClass('mq-hasCursor');
-    if (this.isEmpty()) {
+    if (this.isEmpty())
       this.jQ.addClass('mq-empty');
-      if (this.isEmptyParens()) {
-        this.jQ.addClass('mq-empty-parens');
-      } else if (this.isEmptySquareBrackets()) {
-        this.jQ.addClass('mq-empty-square-brackets');
-      }
-    }
+
     return this;
   };
 });
@@ -516,29 +511,16 @@ API.StaticMath = function(APIClasses) {
     };
     _.init = function() {
       super_.init.apply(this, arguments);
-      var innerFields = this.innerFields = [];
-      this.__controller.root.postOrder(function (node) {
-        node.registerInnerField(innerFields, APIClasses.MathField);
-      });
+      this.__controller.root.postOrder(
+        'registerInnerField', this.innerFields = [], APIClasses.MathField);
     };
     _.latex = function() {
       var returned = super_.latex.apply(this, arguments);
       if (arguments.length > 0) {
-        var innerFields = this.innerFields = [];
-        this.__controller.root.postOrder(function (node) {
-          node.registerInnerField(innerFields, APIClasses.MathField);
-        });
+        this.__controller.root.postOrder(
+          'registerInnerField', this.innerFields = [], APIClasses.MathField);
       }
       return returned;
-    };
-    _.setAriaLabel = function(ariaLabel) {
-      this.__controller.ariaLabel = typeof ariaLabel === 'string' ? ariaLabel : '';
-      var prependedLabel = this.__controller.ariaLabel !== 'Math Input' ? this.__controller.ariaLabel + ': ' : '';
-      this.__controller.container.attr('aria-label', prependedLabel + this.__controller.root.mathspeak().trim());
-      return this;
-    };
-    _.getAriaLabel = function () {
-      return this.__controller.ariaLabel || '';
     };
   });
 };
